@@ -11,7 +11,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copie o restante dos arquivos da aplicação para o diretório de trabalho
-COPY app.py .
+COPY . .
 
 # Indique a porta que a aplicação irá utilizar
 EXPOSE 5000

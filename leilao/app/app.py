@@ -1,4 +1,4 @@
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, render_template, send_from_directory
 from datetime import datetime
 import redis
 import os
@@ -8,10 +8,36 @@ app = Flask(__name__)
 redis_host = os.getenv("REDIS_HOST", "redis-service")
 r = redis.Redis(host=redis_host, port=6379, decode_responses=True)
 
-@app.route('/criar-leilao', methods=['POST'])
+@app.route('/create-auction', methods=['POST'])
 def criar_leilao():
     dados = request.json
-    leilao_id = f"leilao:{r.incr('contador_leiloes')}"
+    campos_obrigatorios = ['titulo', 'descricao', 'preco_inicial', 'horario_termino']
+    for campo in campos_obrigatorios:
+        if campo not in dados or not dados[campo]:
+            return jsonify({'ERROR': f'Campo {campo} é obrigatório'}), 400
+
+    titulo = dados['titulo'].strip()
+    descricao = dados['descricao'].strip()
+
+    if not titulo:
+        return jsonify({'ERROR': 'Título não pode ser vazio'}), 400
+
+    if not descricao:
+        return jsonify({'ERROR': 'Descrição não pode ser vazia'}), 400
+
+    try:
+        preco_inicial = float(dados['preco_inicial'])
+        if preco_inicial <= 0:
+            return jsonify({'ERROR': 'Preço inicial deve ser maior que zero'}), 400
+    except (ValueError, TypeError):
+        return jsonify({'ERROR': 'Preço inicial deve ser um número válido'}), 400
+
+    horario_termino = datetime.fromisoformat(dados['horario_termino'])
+    if horario_termino <= datetime.now():
+        return jsonify({'ERROR': 'Horário de término deve ser no futuro'}), 400
+
+    dados = request.json
+    leilao_id = f"auction:{r.incr('contador_leiloes')}"
     dados_leilao = {
         'titulo': dados['titulo'],
         'descricao': dados['descricao'],
@@ -27,7 +53,7 @@ def criar_leilao():
 
     return jsonify({'id': leilao_id, 'message': 'Leilão criado!'})
 
-@app.route('/listar-leiloes', methods=['GET'])
+@app.route('/view-auctions', methods=['GET'])
 def listar_leiloes():
     leiloes = []
 
@@ -46,20 +72,30 @@ def listar_leiloes():
 
     return jsonify(leiloes)
 
-@app.route('/detalhes-leilao/<leilao_id>', methods=['GET'])
-def detalhes_leilao(leilao_id):
-    leilao = r.hgetall(leilao_id)
+@app.route('/auction/<auction_id>', methods=['GET'])
+def detalhes_leilao(auction_id):
+    leilao = r.hgetall(auction_id)
     if not leilao:
         return jsonify({'ERROR': 'Leilão não encontrado'}), 404
 
     # Lista de lances
-    lances = r.lrange(f"lances:{leilao_id}", 0, -1)
+    lances = r.lrange(f"lances:{auction_id}", 0, -1)
     lances = [json.loads(lance) for lance in lances]
 
-    leilao['lances'] = lances
-    return jsonify(leilao)
+    resultado = {
+        'id': auction_id,
+        'titulo': leilao.get('titulo', ''),
+        'descricao': leilao.get('descricao', ''),
+        'preco_inicial': leilao.get('preco_inicial', 0),
+        'preco_atual': leilao.get('preco_atual', 0),
+        'horario_termino': leilao.get('horario_termino', ''),
+        'ativo': leilao.get('ativo', 'false'),
+        'lances': lances
+    }
 
-@app.route('/fazer-lance', methods=['POST'])
+    return jsonify(resultado)
+
+@app.route('/place-bid', methods=['POST'])
 def fazer_lance():
     dados = request.json
     leilao_id = dados['leilao_id']
@@ -103,7 +139,7 @@ def fazer_lance():
 
     return jsonify({'message': 'Lance aceito!', 'novo_preco': valor})
 
-@app.route('/notificar-leiloes')
+@app.route('/notify')
 def notificar_leiloes():
     def gerar():
         pubsub = r.pubsub()
@@ -117,6 +153,14 @@ def notificar_leiloes():
         gerar(),
         mimetype='text/event-stream'
     )
+
+@app.route('/')
+def index():
+    return render_template('index.html')
+
+@app.route('/static/<path:filename>')
+def static_files(filename):
+    return send_from_directory('static', filename)
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)

@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Leilão</title>
+    
+</head>
+<body>
+    <h1>Leilão Online</h1>
+    <link rel="stylesheet" href="/static/style.css">
+    <div class="section">
+        <h2>Criar Leilão</h2>
+        <input id="titulo" placeholder="Título"><br>
+        <textarea id="descricao" placeholder="Descrição" rows="3"></textarea><br>
+        <input id="preco" type="number" placeholder="Preço inicial"><br>
+        <input id="termino" type="datetime-local"><br>
+        <button onclick="criarLeilao()">Criar Leilão</button>
+        <div id="resultadoCriar"></div>
+    </div>
+    
+    <div class="section">
+        <h2>Leilões Ativos</h2>
+        <button onclick="listarLeiloes()">Carregar Leilões</button>
+        <div id="leiloesAtivos"></div>
+    </div>
+    
+    <div class="section">
+        <h2>Buscar Leilão</h2>
+        <input id="leilaoId" placeholder="ID do leilão (ex: auction:1)">
+        <button onclick="buscarLeilao()">Buscar</button>
+        <div id="detalhesLeilao"></div>
+    </div>
+    
+    <div id="formLance" class="section" style="display:none;">
+        <h2>Fazer Lance</h2>
+        <input id="lanceLeilaoId" readonly><br>
+        <input id="lanceUsuario" placeholder="Seu nome"><br>
+        <input id="lanceValor" type="number" placeholder="Valor"><br>
+        <button onclick="fazerLance()">Enviar Lance</button>
+        <button onclick="fecharLance()">Cancelar</button>
+        <div id="resultadoLance"></div>
+    </div>
+
+    <script>
+        const API = window.location.origin;
+        
+        // Criar leilão
+        async function criarLeilao() {
+            const dados = {
+                titulo: document.getElementById('titulo').value,
+                descricao: document.getElementById('descricao').value,
+                preco_inicial: document.getElementById('preco').value,
+                horario_termino: document.getElementById('termino').value
+            };
+            
+            const res = await fetch(API + '/create-auction', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(dados)
+            });
+            
+            const resultado = await res.json();
+            document.getElementById('resultadoCriar').innerHTML = 
+                res.ok ? `Criado! ID: ${resultado.id}` : `Erro: ${resultado.ERROR}`;
+        }
+        
+        // Listar leilões ativos
+        async function listarLeiloes() {
+            const res = await fetch(API + '/view-auctions');
+            const leiloes = await res.json();
+            
+            let html = '';
+            leiloes.forEach(leilao => {
+                html += `
+                    <div class="leilao">
+                        <strong>${leilao.titulo}</strong><br>
+                        Preço: R$ ${leilao.preco_atual}<br>
+                        ID: ${leilao.id}<br>
+                        <button onclick="mostrarFormLance('${leilao.id}')">Fazer Lance</button>
+                        <button onclick="verDetalhes('${leilao.id}')">Ver Detalhes</button>
+                    </div>
+                `;
+            });
+            
+            document.getElementById('leiloesAtivos').innerHTML = html || 'Nenhum leilão ativo';
+        }
+        
+        // Buscar leilão específico
+        async function buscarLeilao() {
+            const id = document.getElementById('leilaoId').value;
+            if(!id) return;
+            
+            const res = await fetch(API + '/auction/' + id);
+            if(!res.ok) {
+                document.getElementById('detalhesLeilao').innerHTML = 'Leilão não encontrado';
+                return;
+            }
+            
+            const leilao = await res.json();
+            
+            let lancesHTML = '';
+            if(leilao.lances && leilao.lances.length > 0) {
+                leilao.lances.forEach(lance => {
+                    lancesHTML += `<div class="lance">${lance.usuario}: R$ ${lance.valor} (${new Date(lance.data).toLocaleString()})</div>`;
+                });
+            } else {
+                lancesHTML = 'Nenhum lance ainda';
+            }
+
+            let horarioTerminoHTML = '';
+    	    if(leilao.horario_termino) {
+        	horarioTerminoHTML = `<p><strong>Horário de término:</strong> ${new Date(leilao.horario_termino).toLocaleString()}</p>`;
+    	    }
+            
+            document.getElementById('detalhesLeilao').innerHTML = `
+                ${horarioTerminoHTML}
+		<h3>${leilao.titulo}</h3>
+                <p>${leilao.descricao}</p>
+                <p><strong>Preço atual:</strong> R$ ${leilao.preco_atual}</p>
+                <p><strong>Status:</strong> ${leilao.ativo === 'true' ? 'Ativo' : 'Encerrado'}</p>
+                <h4>Lances:</h4>
+                ${lancesHTML}
+                <button onclick="mostrarFormLance('${id}')">Fazer Lance</button>
+            `;
+        }
+        
+        // Mostrar formulário de lance
+        function mostrarFormLance(leilaoId) {
+            document.getElementById('lanceLeilaoId').value = leilaoId;
+            document.getElementById('formLance').style.display = 'block';
+            document.getElementById('lanceUsuario').focus();
+        }
+        
+        function fecharLance() {
+            document.getElementById('formLance').style.display = 'none';
+            document.getElementById('resultadoLance').innerHTML = '';
+        }
+        
+        // Fazer lance
+        async function fazerLance() {
+            const dados = {
+                leilao_id: document.getElementById('lanceLeilaoId').value,
+                usuario: document.getElementById('lanceUsuario').value,
+                valor: document.getElementById('lanceValor').value
+            };
+            
+            const res = await fetch(API + '/place-bid', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(dados)
+            });
+            
+            const resultado = await res.json();
+            document.getElementById('resultadoLance').innerHTML = 
+                res.ok ? `Novo preço: R$ ${resultado.novo_preco}` : `Erro: ${resultado.ERROR}`;
+            
+            if(res.ok) {
+                setTimeout(() => {
+                    fecharLance();
+                    listarLeiloes();
+                    buscarLeilao();
+                }, 2000);
+            }
+        }
+        
+        function verDetalhes(leilaoId) {
+            document.getElementById('leilaoId').value = leilaoId;
+            buscarLeilao();
+        }
+        
+        window.onload = function() {
+            const amanha = new Date();
+            amanha.setDate(amanha.getDate() + 1);
+            amanha.setHours(23, 59, 0, 0);
+            document.getElementById('termino').value = amanha.toISOString().slice(0, 16);
+        };
+    </script>
+</body>
+</html>
