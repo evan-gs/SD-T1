@@ -52,9 +52,37 @@ chmod +x deploy-worker.sh
 
 Se tudo foi bem sucedido será possível acessar a aplicação no endereço http://localhost:30080
 
+# Operações possíveis
+
+### Criar leilão (POST /create-auction)
+Responsável por cadastrar um novo leilão no sistema
+Recebe informações como título, descrição, preço inicial e horário de término
+O leilão é armazenado no Redis e passa a ficar disponível para receber lances até o horário definido
+
+### Realizar lance (POST /place-bid)
+Permite que um usuário envie um lance para um leilão ativo
+O sistema verifica se o leilão existe, se ainda está ativo e se o valor do lance é maior que o lance atual
+Para evitar condições de corrida, a atualização do lance é feita utilizando mecanismos de concorrência do Redis para evotar escrita concorrente
+
+### Listar leilões ativos (GET /view-auctions)
+Retorna todos os leilões que ainda estão ativos no sistema
+Essa operação é usada para que usuários visualizem quais leilões estão disponíveis para participação
+
+### Ver detalhes de um leilão (GET /auction/<id>)
+Exibe todas as informações de um leilão específico: dados gerais do leilão, preço atual, histórico de lances ordenado
+Usada para acompanhamento detalhado do andamento do leilão
+
+### Notificações em tempo real (GET /notify)
+Fornece eventos em tempo real utilizando pub/sub
+Sempre que um novo lance é realizado ou o estado do leilão muda, uma notificação é enviada para os clientes conectados
+
+### Worker
+
+O worker é um componente executado em segundo plano responsável por monitorar os leilões armazenados, verifica prazos de encerramento, encerra leilões, gera relatório via openai e parabeniza o vencedor no email e discord enviando também o relatório gerado
+
 # Uso via curl
 
-## Criar leilão
+### Criar leilão
 ```bash
 curl -X POST http://localhost:30080/create-auction \
   -H "Content-Type: application/json" \
@@ -66,7 +94,7 @@ curl -X POST http://localhost:30080/create-auction \
   }'
 ```
 
-## Fazer lance
+### Fazer lance
 ```bash
 curl -X POST http://localhost:30080/place-bid \
   -H "Content-Type: application/json" \
@@ -78,17 +106,17 @@ curl -X POST http://localhost:30080/place-bid \
   }'
 ```
 
-## Listar leilões ativos
+### Listar leilões ativos
 ```bash
 curl -X GET http://localhost:30080/view-auctions
 ```
 
-## Ver detalhes de um leilão
+### Ver detalhes de um leilão
 ```bash
 curl -X GET http://localhost:30080/auction/auction:1
 ```
 
-## Acompanhar eventos
+### Acompanhar eventos
 ```bash
 curl -X GET -N http://localhost:30080/notify
 ```
