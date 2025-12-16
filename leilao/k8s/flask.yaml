@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
       - name: flask
-        image: rodinez/leilao-flask:1.0.7
+        image: rodinez/leilao-flask:1.0.8
         imagePullPolicy: Always
         ports:
         - containerPort: 5000

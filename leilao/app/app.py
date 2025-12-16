@@ -170,7 +170,7 @@ def fazer_lance():
 def notificar_leiloes():
     def gerar():
         pubsub = r.pubsub()
-        pubsub.subscribe('leilao_updates')
+        pubsub.subscribe('leilao_updates', 'leiloes_finalizados')
 
         for mensagem in pubsub.listen():
             if mensagem['type'] == 'message':
