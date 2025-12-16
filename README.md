@@ -131,3 +131,19 @@ chmod +x testes.sh
 Será criado um leilão e 10 lances concorrentes serão enviados, alguns falharam devido ao redis watch que os fará tentar novamente o lance quando o valor for alterado por outro lance e, se esse lance concorrente for maior, o atual falhará pois o preço é menor que o atual.
 - !!!IMPORTANTE: esse script só funciona para a auction:1, se quiser testar mais de uma vez será necessário mudar esse valor no script {leilao_id} 
 
+### Testes de pods
+
+para matar um pod e ve-lo subindo novamente
+```bash
+sudo kubectl delete pod flask-app-74bcf694c5-jnckh -n leilao-ns
+```
+
+para derrubar todos os pods do namespace
+```bash
+sudo kubectl delete pod -l app=flask-app -n leilao-ns 
+```
+
+para aumentar as replicas
+```bash
+sudo kubectl scale deployment flask-app -n leilao-ns --replicas=3
+```
