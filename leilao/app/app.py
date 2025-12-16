@@ -1,14 +1,25 @@
 from flask import Flask, jsonify, request, render_template, send_from_directory
 from datetime import datetime
+from zoneinfo import ZoneInfo
 import redis
 import os
 import json
 import time
 import threading
 
+time_zone = ZoneInfo("America/Sao_Paulo")
 app = Flask(__name__)
 redis_host = os.getenv("REDIS_HOST", "redis-service")
 r = redis.Redis(host=redis_host, port=6379, decode_responses=True)
+
+def agora():
+    return datetime.now(tz=time_zone)
+
+def ajustar_datetime(dt_str):
+    dt = datetime.fromisoformat(dt_str)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=time_zone)
+    return dt
 
 @app.route('/create-auction', methods=['POST'])
 def criar_leilao():
@@ -34,8 +45,8 @@ def criar_leilao():
     except (ValueError, TypeError):
         return jsonify({'ERROR': 'Preço inicial deve ser um número válido'}), 400
 
-    horario_termino = datetime.fromisoformat(dados['horario_termino'])
-    if horario_termino <= datetime.now():
+    horario_termino = ajustar_datetime(dados['horario_termino'])
+    if horario_termino <= agora():
         return jsonify({'ERROR': 'Horário de término deve ser no futuro'}), 400
 
     dados = request.json
@@ -64,7 +75,7 @@ def listar_leiloes():
 
         # Verificar se expirou
         if leilao.get('horario_termino'):
-            if datetime.now() > datetime.fromisoformat(leilao['horario_termino']):
+            if agora() > ajustar_datetime(leilao['horario_termino']):
                 continue
 
         leilao['id'] = leilao_id
@@ -107,40 +118,40 @@ def fazer_lance():
     leilao_id = dados['leilao_id']
     usuario = dados['usuario'].strip()
     email = dados['email'].strip()
+    valor = float(dados['valor'])
 
-    if not usuario or not email:
-        return jsonify({'ERROR': 'Usuário e email não podem ser vazios'}), 400
+    while True:
+        try:
+            with r.pipeline() as pipe: # pipeline para evitar escrita concorrente, se o valor referente ao leilao_id mudar as operacoes sao canceladas
+                pipe.watch(leilao_id)
 
-    try:
-        valor = float(dados['valor'])
-        if valor <= 0:
-            return jsonify({'ERROR': 'Valor deve ser maior que zero'}), 400
-    except (ValueError, TypeError):
-        return jsonify({'ERROR': 'Valor deve ser um número válido'}), 400
+                leilao = pipe.hgetall(leilao_id)
+                if not leilao or leilao.get('ativo') != 'true':
+                    pipe.unwatch()
+                    return jsonify({'ERROR': 'Leilão inválido'}), 400
 
-    leilao = r.hgetall(leilao_id)
-    if not leilao or leilao.get('ativo') != 'true':
-        return jsonify({'ERROR': 'Leilão não encontrado ou inativo'}), 404
+                preco_atual = float(leilao.get('preco_atual', leilao['preco_inicial']))
+                if valor <= preco_atual:
+                    pipe.unwatch()
+                    return jsonify({'ERROR': 'Lance deve ser maior que o atual'}), 400
 
-    # Verificar se expirou
-    if leilao.get('horario_termino'):
-        if datetime.now() > datetime.fromisoformat(leilao['horario_termino']):
-            return jsonify({'ERROR': 'Leilão expirado'}), 400
+                lance = {
+                    'usuario': usuario,
+                    'valor': valor,
+                    'email': email,
+                    'data': agora().isoformat()
+                }
 
-    # Verificar se lance é maior que o atual
-    preco_atual = float(leilao.get('preco_atual', 0))
-    if valor <= preco_atual:
-        return jsonify({'ERROR': 'Lance deve ser maior que o atual'}), 400
+                pipe.multi()
+                pipe.hset(leilao_id, 'preco_atual', valor)
+                pipe.zadd(f"lances:{leilao_id}", {json.dumps(lance): valor})
+                pipe.execute()
 
-    lance = {
-        'usuario': usuario,
-        'valor': valor,
-	'email': email,
-        'data': datetime.now().isoformat()
-    }
+                break
 
-    r.hset(leilao_id, 'preco_atual', valor)
-    r.zadd(f"lances:{leilao_id}", {json.dumps(lance): valor})
+        except redis.WatchError:
+            # outro usuário registou novo valor
+            continue
 
     mensagem = {
         'leilao_id': leilao_id,
@@ -178,7 +189,7 @@ def finalizar_leiloes():
 
                 if leilao.get('horario_termino'):
                     try:
-                        if datetime.now() > datetime.fromisoformat(leilao['horario_termino']):
+                        if agora() > ajustar_datetime(leilao['horario_termino']):
                             r.hset(leilao_id, 'ativo', 'false')
                             r.srem('leiloes_ativos', leilao_id)
 
@@ -198,7 +209,7 @@ def finalizar_leiloes():
                                 'total_lances': len(lances),
                                 'vencedor': vencedor,
                                 'todos_lances': lances,
-                                'data_finalizacao': datetime.now().isoformat(),
+                                'data_finalizacao': agora().isoformat(),
                                 'tipo_evento': 'leilao_finalizado'
                             }
 

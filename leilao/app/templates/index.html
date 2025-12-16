@@ -46,11 +46,14 @@
         
         // Criar leilão
         async function criarLeilao() {
+            const timezoneInput = document.getElementById('termino').value;
+            const timezoneDate = new Date(timezoneInput);
+
             const dados = {
                 titulo: document.getElementById('titulo').value,
                 descricao: document.getElementById('descricao').value,
                 preco_inicial: document.getElementById('preco').value,
-                horario_termino: document.getElementById('termino').value
+                horario_termino: timezoneDate.toISOString()
             };
             
             const res = await fetch(API + '/create-auction', {
@@ -173,7 +176,9 @@
             const amanha = new Date();
             amanha.setDate(amanha.getDate() + 1);
             amanha.setHours(23, 59, 0, 0);
-            document.getElementById('termino').value = amanha.toISOString().slice(0, 16);
+            const localISO = new Date(amanha.getTime() - amanha.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+
+            document.getElementById('termino').value = localISO;
         };
     </script>
 </body>
