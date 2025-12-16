@@ -1,0 +1,52 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ai-agent-worker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ai-agent-worker
+  template:
+    metadata:
+      labels:
+        app: ai-agent-worker
+    spec:
+      containers:
+        - name: ai-agent
+          image: rodinez/ai-agent-worker:1.0.5
+          imagePullPolicy: IfNotPresent
+
+          env:
+            - name: REDIS_HOST
+              value: "redis-service.leilao-ns.svc.cluster.local"
+
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: ai-agent-secrets
+                  key: OPENAI_API_KEY
+
+            - name: SMTP_HOST
+              value: "smtp.gmail.com"
+
+            - name: SMTP_PORT
+              value: "587"
+
+            - name: SMTP_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ai-agent-secrets
+                  key: SMTP_USER
+
+            - name: SMTP_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ai-agent-secrets
+                  key: SMTP_PASSWORD
+
+            - name: DISCORD_WEBHOOK_URL
+              valueFrom:
+                secretKeyRef:
+                  name: ai-agent-secrets
+                  key: DISCORD_WEBHOOK_URL

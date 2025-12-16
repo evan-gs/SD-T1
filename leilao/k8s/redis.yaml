@@ -25,7 +25,6 @@ metadata:
   name: redis-service
   namespace: leilao-ns
 spec:
-  clusterIP: None
   selector:
     app: redis
   ports:

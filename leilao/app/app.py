@@ -3,6 +3,8 @@ from datetime import datetime
 import redis
 import os
 import json
+import time
+import threading
 
 app = Flask(__name__)
 redis_host = os.getenv("REDIS_HOST", "redis-service")
@@ -49,7 +51,7 @@ def criar_leilao():
 
     r.hset(leilao_id, mapping=dados_leilao)
     r.sadd('leiloes_ativos', leilao_id)
-    r.delete(f"lances:{leilao_id}")
+
 
     return jsonify({'id': leilao_id, 'message': 'Leilão criado!'})
 
@@ -63,8 +65,6 @@ def listar_leiloes():
         # Verificar se expirou
         if leilao.get('horario_termino'):
             if datetime.now() > datetime.fromisoformat(leilao['horario_termino']):
-                r.hset(leilao_id, 'ativo', 'false')
-                r.srem('leiloes_ativos', leilao_id)
                 continue
 
         leilao['id'] = leilao_id
@@ -79,8 +79,8 @@ def detalhes_leilao(auction_id):
         return jsonify({'ERROR': 'Leilão não encontrado'}), 404
 
     # Lista de lances
-    lances = r.lrange(f"lances:{auction_id}", 0, -1)
-    lances = [json.loads(lance) for lance in lances]
+    lances_data = r.zrevrange(f"lances:{auction_id}", 0, -1, withscores=False)
+    lances = [json.loads(lance) for lance in lances_data]
 
     resultado = {
         'id': auction_id,
@@ -98,9 +98,25 @@ def detalhes_leilao(auction_id):
 @app.route('/place-bid', methods=['POST'])
 def fazer_lance():
     dados = request.json
+
+    campos_obrigatorios = ['leilao_id', 'usuario', 'email', 'valor']
+    for campo in campos_obrigatorios:
+        if campo not in dados or not dados[campo]:
+            return jsonify({'ERROR': f'Campo {campo} é obrigatório'}), 400
+
     leilao_id = dados['leilao_id']
-    usuario = dados['usuario']
-    valor = float(dados['valor'])
+    usuario = dados['usuario'].strip()
+    email = dados['email'].strip()
+
+    if not usuario or not email:
+        return jsonify({'ERROR': 'Usuário e email não podem ser vazios'}), 400
+
+    try:
+        valor = float(dados['valor'])
+        if valor <= 0:
+            return jsonify({'ERROR': 'Valor deve ser maior que zero'}), 400
+    except (ValueError, TypeError):
+        return jsonify({'ERROR': 'Valor deve ser um número válido'}), 400
 
     leilao = r.hgetall(leilao_id)
     if not leilao or leilao.get('ativo') != 'true':
@@ -109,8 +125,6 @@ def fazer_lance():
     # Verificar se expirou
     if leilao.get('horario_termino'):
         if datetime.now() > datetime.fromisoformat(leilao['horario_termino']):
-            r.hset(leilao_id, 'ativo', 'false')
-            r.srem('leiloes_ativos', leilao_id)
             return jsonify({'ERROR': 'Leilão expirado'}), 400
 
     # Verificar se lance é maior que o atual
@@ -121,15 +135,17 @@ def fazer_lance():
     lance = {
         'usuario': usuario,
         'valor': valor,
+	'email': email,
         'data': datetime.now().isoformat()
     }
 
     r.hset(leilao_id, 'preco_atual', valor)
-    r.rpush(f"lances:{leilao_id}", json.dumps(lance))
+    r.zadd(f"lances:{leilao_id}", {json.dumps(lance): valor})
 
     mensagem = {
         'leilao_id': leilao_id,
         'usuario': usuario,
+	'email': email,
         'valor': valor,
         'data': lance['data'],
         'tipo': 'novo_lance'
@@ -154,6 +170,50 @@ def notificar_leiloes():
         mimetype='text/event-stream'
     )
 
+def finalizar_leiloes():
+     while True:
+        try:
+            for leilao_id in list(r.smembers('leiloes_ativos')):
+                leilao = r.hgetall(leilao_id)
+
+                if leilao.get('horario_termino'):
+                    try:
+                        if datetime.now() > datetime.fromisoformat(leilao['horario_termino']):
+                            r.hset(leilao_id, 'ativo', 'false')
+                            r.srem('leiloes_ativos', leilao_id)
+
+                            lances_data = r.zrevrange(f"lances:{leilao_id}", 0, -1, withscores=False)
+                            lances = [json.loads(lance) for lance in lances_data]
+
+                            vencedor = lances[0] if lances else None
+
+                            evento = {
+                                'leilao_id': leilao_id,
+                                'titulo': leilao.get('titulo', ''),
+                                'descricao': leilao.get('descricao', ''),
+                                'preco_inicial': float(leilao.get('preco_inicial', 0)),
+                                'preco_final': float(leilao.get('preco_atual', 0)),
+                                'horario_termino': leilao.get('horario_termino', ''),
+                                'criador_email': leilao.get('criador_email', ''),
+                                'total_lances': len(lances),
+                                'vencedor': vencedor,
+                                'todos_lances': lances,
+                                'data_finalizacao': datetime.now().isoformat(),
+                                'tipo_evento': 'leilao_finalizado'
+                            }
+
+                            r.publish('leiloes_finalizados', json.dumps(evento))
+                            app.logger.info(f"Evento publicado: leilão {leilao_id} finalizado")
+
+                    except Exception as e:
+                        app.logger.error(f"Erro ao processar leilão {leilao_id}: {e}")
+
+            time.sleep(30)
+
+        except Exception as e:
+            app.logger.error(f"Erro no verificador: {e}")
+            time.sleep(30)
+
 @app.route('/')
 def index():
     return render_template('index.html')
@@ -163,4 +223,6 @@ def static_files(filename):
     return send_from_directory('static', filename)
 
 if __name__ == '__main__':
+    verificador_thread = threading.Thread(target=finalizar_leiloes, daemon=True)
+    verificador_thread.start()
     app.run(host='0.0.0.0', port=5000)

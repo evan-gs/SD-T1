@@ -2,8 +2,8 @@
 
 #!/bin/bash
 
-echo "=== DEPLOY FINAL==="
-echo "Usando porta 30080"
+#echo "=== DEPLOY FINAL==="
+#echo "Usando porta 30080"
 
 # 1. Limpar tudo
 echo "1. Limpando ambiente anterior..."
@@ -27,7 +27,7 @@ kind load docker-image leilao-flask:latest --name leilao-cluster
 echo "   Método 2: Verificando se imagem foi carregada..."
 if ! docker exec leilao-cluster-control-plane crictl images | grep -q "leilao-flask"; then
     echo "   Imagem não encontrada, usando método alternativo..."
-    docker save leilao-flask:latest -o leilao-flask.tar
+   docker save leilao-flask:latest -o leilao-flask.tar
     kind load image-archive leilao-flask.tar --name leilao-cluster
     rm -f leilao-flask.tar
 fi

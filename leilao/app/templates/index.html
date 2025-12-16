@@ -35,6 +35,7 @@
         <input id="lanceLeilaoId" readonly><br>
         <input id="lanceUsuario" placeholder="Seu nome"><br>
         <input id="lanceValor" type="number" placeholder="Valor"><br>
+        <input id="lanceEmail" type="email" name="email" placeholder="Seu email"><br>
         <button onclick="fazerLance()">Enviar Lance</button>
         <button onclick="fecharLance()">Cancelar</button>
         <div id="resultadoLance"></div>
@@ -140,6 +141,7 @@
             const dados = {
                 leilao_id: document.getElementById('lanceLeilaoId').value,
                 usuario: document.getElementById('lanceUsuario').value,
+                email: document.getElementById('lanceEmail').value,
                 valor: document.getElementById('lanceValor').value
             };
             
